@@ -1,0 +1,67 @@
+/* Base (Mobile-first) styles */
+body {
+    font-size: 16px;
+    padding: 10px;
+    font-family: 'Poppins', sans-serif;
+}
+
+.nav-container {
+    display: grid;
+    grid-template-columns: 1fr auto;  /* Left side takes up remaining space, right side auto fits */
+    align-items: center;              /* Vertically center items */
+    gap: 10px;
+    border-radius: 15px;
+    background-color: rgba(159, 159, 159, 0.653);
+}
+
+.hero-section {
+    display: grid;
+    grid-template-columns: 1fr auto;  /* Left side takes up remaining space, right side auto fits */
+    align-items: center;              /* Vertically center items */
+    gap: 10px;
+    border-radius: 25%;
+}
+
+.hero-section-header {
+    background-color: rgba(176, 176, 176, 0.347);
+}
+
+.navbar-container, .navbar, .hero-section, h1, h2, h3, h4, p, a, button {
+    font-family: 'Poppins', sans-serif;  /* Apply Poppins font */
+}
+
+.nav-items {
+    display: flex;                       /* Flexbox for horizontal layout of links/buttons */
+    gap: 16px;                           /* Add spacing between nav items */
+}
+
+
+/* Larger screen styles */
+@media (min-width: 768px) {
+    body {
+        font-size: 18px;
+    }
+    .container {
+        padding: 20px;
+    }
+}
+ 
+ .accordion-button{
+     background-color: transparent;
+ }
+
+.bus-train-seat-button{
+    background-color: transparent !important;
+ }
+
+
+ .slide-from-left {
+    opacity: 0;
+    transform: translateX(-100px);
+    transition: all 1s ease;
+}
+
+.slide-from-left.active {
+    opacity: 1;
+    transform: translateX(0);
+}
