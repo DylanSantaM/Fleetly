@@ -67,13 +67,13 @@ document.addEventListener('DOMContentLoaded', function() {
         button.addEventListener('click', function() {
             // Remove selected class from all buttons
             seatButtons.forEach(btn => {
-                btn.classList.remove('btn-primary');
+                btn.classList.remove('btn-primary', 'selected');
                 btn.classList.add('btn-outline-primary');
             });
             
             // Add selected class to clicked button
             this.classList.remove('btn-outline-primary');
-            this.classList.add('btn-primary');
+            this.classList.add('btn-primary', 'selected');
         });
     });
 });
@@ -100,21 +100,101 @@ document.addEventListener('DOMContentLoaded', function() {
 const nearbyLocations = ['Thika', 'Nakuru', 'Nyeri'];
 const farLocations = ['Mombasa', 'Kisumu', 'Eldoret', 'Kitale', 'Malindi', 'Kakamega'];
 
-document.getElementById('checkAvailabilityBtn').addEventListener('click', function() {
-    const selectedVehicle = document.querySelector('#dropdownMenuButton').textContent.trim().toLowerCase();
-    const selectedLocation = document.querySelector('#locationDropdown').textContent.trim();
-    const startDate = document.querySelector('#startDate').value;
-    const priceBreakdown = document.getElementById('priceBreakdown');
-    const totalPriceElement = document.getElementById('totalPrice');
+// Handle destination selection
+document.querySelectorAll('#destinationDropdown + .dropdown-menu .dropdown-item').forEach(item => {
+    item.addEventListener('click', function(e) {
+        e.preventDefault();
+        document.querySelector('#destinationDropdown').textContent = this.textContent;
+    });
+});
+
+// Update the booking data collection
+// Booking functionality
+document.getElementById('checkAvailabilityBtn').addEventListener('click', async function() {
+    // Get CSRF token from meta tag
+    const csrf_token = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     
-    if (!selectedVehicle || selectedVehicle === 'select bus/car/train' || 
-        !selectedLocation || selectedLocation === 'Select Location' || 
-        !startDate) {
-        alert('Please select all required options (vehicle, location, and date)');
+    // Gather form data
+    const vehicleType = document.querySelector('#dropdownMenuButton').textContent.trim().toLowerCase();
+    const location = document.querySelector('#locationDropdown').textContent.trim();
+    const destination = document.querySelector('#destinationDropdown').textContent.trim();
+    const startDate = document.querySelector('#startDate').value;
+    const endDate = document.querySelector('#endDate').value;
+    
+    // Get vehicle specific data
+    let passengers = null;
+    let seatNumber = null;
+    
+    if (vehicleType === 'car') {
+        const passengerText = document.querySelector('#passengerDropdown').textContent.trim();
+        passengers = parseInt(passengerText.split(' ')[0]) || null;
+    } else {
+        const selectedSeat = document.querySelector('.seat-btn.selected');
+        if (selectedSeat) {
+            seatNumber = selectedSeat.textContent.trim();
+        }
+    }
+
+    // Validate inputs
+    if (destination === 'Select Destination') {
+        alert('Please select a destination');
         return;
     }
 
-    // Calculate booking time difference
+    if ((vehicleType === 'bus' || vehicleType === 'train') && !seatNumber) {
+        alert('Please select a seat');
+        return;
+    }
+    
+    // Get total price from display
+    const totalPrice = parseFloat(document.querySelector('#totalPrice').textContent.replace(/[^0-9.]/g, ''));
+    
+    // Prepare booking data
+    const bookingData = {
+        vehicleType,
+        passengers,
+        seatNumber,
+        location,
+        destination,
+        startDate,
+        endDate,
+        totalPrice
+    };
+
+    // Log the data being sent (for debugging)
+    console.log('Sending booking data:', bookingData);
+    
+    try {
+        const response = await fetch('/book', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrf_token
+            },
+            body: JSON.stringify(bookingData)
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            alert('Booking successful!');
+        } else {
+            alert('Booking failed: ' + result.message);
+            window.location.reload();
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error saving booking: ' + error.message);
+    }
+});
+
+// Price calculation function
+function calculatePrice(vehicleType, location, destination, startDate) {
+    const selectedVehicle = vehicleType.toLowerCase();
     const bookingDate = new Date(startDate);
     const today = new Date();
     const daysDifference = Math.ceil((bookingDate - today) / (1000 * 60 * 60 * 24));
@@ -127,7 +207,7 @@ document.getElementById('checkAvailabilityBtn').addEventListener('click', functi
     breakdownHTML += `<li>Booking Time Fee: $${totalPrice} (${daysDifference <= 7 ? 'Last minute booking' : 'Advance booking'})</li>`;
 
     // Additional price based on vehicle type and distance
-    const isFarLocation = farLocations.includes(selectedLocation);
+    const isFarLocation = farLocations.includes(destination);
     let transportFee = 0;
     
     if (selectedVehicle.includes('car')) {
@@ -144,7 +224,105 @@ document.getElementById('checkAvailabilityBtn').addEventListener('click', functi
     totalPrice += transportFee;
     breakdownHTML += '</ul>';
 
+    return { totalPrice, breakdownHTML };
+}
+
+// Modify the check availability button handler
+document.getElementById('checkAvailabilityBtn').addEventListener('click', function() {
+    const vehicleType = document.querySelector('#dropdownMenuButton').textContent.trim();
+    const location = document.querySelector('#locationDropdown').textContent.trim();
+    const destination = document.querySelector('#destinationDropdown').textContent.trim();
+    const startDate = document.querySelector('#startDate').value;
+
+    if (!vehicleType || vehicleType === 'select bus/car/train' || 
+        !location || location === 'Select Location' || 
+        !destination || destination === 'Select Destination' ||
+        !startDate) {
+        alert('Please select all required options (vehicle, location, destination, and date)');
+        return;
+    }
+
+    const { totalPrice, breakdownHTML } = calculatePrice(vehicleType, location, destination, startDate);
+
     // Display the breakdown and total
-    priceBreakdown.innerHTML = breakdownHTML;
-    totalPriceElement.textContent = `Total Price: $${totalPrice}`;
+    document.getElementById('priceBreakdown').innerHTML = breakdownHTML;
+    document.getElementById('totalPrice').textContent = `Total Price: $${totalPrice}`;
+    document.getElementById('priceDisplay').style.display = 'block';
+
+    // Show confirm button
+    document.getElementById('confirmBookingBtn').style.display = 'block';
+});
+
+// Add confirm booking button handler
+document.getElementById('confirmBookingBtn').addEventListener('click', async function() {
+    // Get CSRF token from meta tag
+    const csrf_token = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    
+    // Gather form data
+    const vehicleType = document.querySelector('#dropdownMenuButton').textContent.trim().toLowerCase();
+    const location = document.querySelector('#locationDropdown').textContent.trim();
+    const destination = document.querySelector('#destinationDropdown').textContent.trim();
+    const startDate = document.querySelector('#startDate').value;
+    const endDate = document.querySelector('#endDate').value;
+    
+    // Get vehicle specific data
+    let passengers = null;
+    let seatNumber = null;
+    
+    if (vehicleType === 'car') {
+        const passengerText = document.querySelector('#passengerDropdown').textContent.trim();
+        passengers = parseInt(passengerText.split(' ')[0]) || null;
+    } else {
+        const selectedSeat = document.querySelector('.seat-btn.selected');
+        if (selectedSeat) {
+            seatNumber = selectedSeat.textContent.trim();
+        }
+    }
+
+    // Validate inputs
+    if ((vehicleType === 'bus' || vehicleType === 'train') && !seatNumber) {
+        alert('Please select a seat');
+        return;
+    }
+    
+    // Get total price from display
+    const totalPrice = parseFloat(document.querySelector('#totalPrice').textContent.replace(/[^0-9.]/g, ''));
+    
+    // Prepare booking data
+    const bookingData = {
+        vehicleType,
+        passengers,
+        seatNumber,
+        location,
+        destination,
+        startDate,
+        endDate,
+        totalPrice
+    };
+
+    try {
+        const response = await fetch('/book', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrf_token
+            },
+            body: JSON.stringify(bookingData)
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            alert('Booking successful! Sending an email giving you details of your booking.');
+        } else {
+            alert('Booking failed: ' + result.message);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error saving booking: ' + error.message);
+    }
 });
