@@ -65,3 +65,8 @@ body {
     opacity: 1;
     transform: translateX(0);
 }
+
+.custom-gray-bg {
+    background-color: #f0f0f0 !important;
+    border: none !important;
+}

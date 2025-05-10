@@ -1,32 +1,26 @@
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
-import os
+from flask_mail import Mail
+from config import Config
 
 db = SQLAlchemy()
+migrate = Migrate()
 csrf = CSRFProtect()
+app = Flask(__name__)
+mail = Mail(app)
 
 def create_app():
     app = Flask(__name__)
-    
-    # Add secret key and CSRF protection
-    app.config['SECRET_KEY'] = 'your-secret-key-here'
-    
-    # Database configuration
-    db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'app.db')
-    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
-    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    
-    # Initialize extensions
+    app.config.from_object(Config)
+
     db.init_app(app)
+    migrate.init_app(app, db)
     csrf.init_app(app)
-    
-    # Import models and register blueprints
-    from . import models
+
+    # Register blueprints
     from .routes import main
     app.register_blueprint(main)
-    
-    with app.app_context():
-        db.create_all()
-    
+
     return app
