@@ -302,9 +302,152 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    // AVAILABILITY CHECK ==========================================
+    function setupAvailabilityCheck() {
+        const checkAvailabilityBtn = document.getElementById('checkAvailabilityBtn');
+        const priceDisplay = document.getElementById('priceDisplay');
+        const emailInputContainer = document.getElementById('emailInputContainer');
+        const paymentFormContainer = document.getElementById('paymentFormContainer');
+        const confirmBookingBtn = document.getElementById('confirmBookingBtn');
+
+        if (checkAvailabilityBtn) {
+            checkAvailabilityBtn.addEventListener('click', function() {
+                // Validate all required fields
+                const startDate = document.getElementById('startDate').value;
+                const vehicleType = document.querySelector('#dropdownMenuButton').textContent.trim();
+                const fromLocation = document.getElementById('fromLocation').value;
+                const toLocation = document.getElementById('toLocation').value;
+
+                // Basic validation
+                if (!startDate) {
+                    alert('Please select a start date');
+                    return;
+                }
+
+                if (vehicleType === 'Select bus/car/train') {
+                    alert('Please select a vehicle type');
+                    return;
+                }
+
+                if (!fromLocation || !toLocation) {
+                    alert('Please select both departure and destination locations');
+                    return;
+                }
+
+                if (fromLocation === toLocation) {
+                    alert('Departure and destination cannot be the same');
+                    return;
+                }
+
+                // Vehicle-specific validation
+                if (vehicleType === 'car') {
+                    const passengerCount = document.getElementById('passengerDropdown').textContent;
+                    if (passengerCount === 'Number of Passengers') {
+                        alert('Please select number of passengers');
+                        return;
+                    }
+                } else if (vehicleType === 'bus' || vehicleType === 'train') {
+                    const modelDropdown = document.getElementById(`${vehicleType}ModelDropdown`);
+                    if (!modelDropdown || !modelDropdown.value) {
+                        alert(`Please select a ${vehicleType} model`);
+                        return;
+                    }
+
+                    const selectedSeat = document.querySelector(`#${vehicleType}Accordion .seat-btn.selected`);
+                    if (!selectedSeat) {
+                        alert(`Please select a seat for the ${vehicleType}`);
+                        return;
+                    }
+                }
+
+                // Calculate price
+                const price = calculatePrice(vehicleType, fromLocation, toLocation);
+
+                // Display results
+                if (priceDisplay) {
+                    priceDisplay.style.display = 'block';
+                    document.getElementById('priceBreakdown').innerHTML = `
+                        <p>Vehicle: ${vehicleType}</p>
+                        <p>From: ${fromLocation}</p>
+                        <p>To: ${toLocation}</p>
+                        <p>Date: ${startDate}</p>
+                    `;
+                    document.getElementById('totalPrice').textContent = `Total: KES ${price.toFixed(2)}`;
+                }
+
+                // Show additional form elements
+                if (emailInputContainer) emailInputContainer.style.display = 'block';
+                if (paymentFormContainer) paymentFormContainer.style.display = 'block';
+                if (confirmBookingBtn) confirmBookingBtn.style.display = 'block';
+            });
+        }
+    }
+
+    // PRICE CALCULATION ===========================================
+    function calculatePrice(vehicleType, fromLocation, toLocation) {
+        // Mock locations and prices
+        const locations = ['Nairobi', 'Mombasa', 'Kisumu', 'Nakuru', 'Eldoret', 'Thika', 'Kitale', 'Malindi', 'Kakamega', 'Nyeri'];
+        const prices = {
+            car: [0, 5000, 3500, 2000, 4000, 1500, 3800, 5500, 4200, 1800],
+            bus: [0, 3000, 2000, 1500, 2500, 1000, 2300, 3500, 2700, 1200],
+            train: [0, 4000, 2500, 1800, 3000, 1300, 2800, 4200, 3200, 1500]
+        };
+
+        const fromIndex = locations.indexOf(fromLocation);
+        const toIndex = locations.indexOf(toLocation);
+
+        if (fromIndex === -1 || toIndex === -1) return 0;
+
+        // Get base price
+        let price = Math.abs(prices[vehicleType.toLowerCase()][toIndex] - prices[vehicleType.toLowerCase()][fromIndex]);
+
+        // Adjust for car passengers
+        if (vehicleType === 'car') {
+            const passengerCount = parseInt(document.getElementById('passengerDropdown').textContent) || 1;
+            price *= passengerCount;
+        }
+
+        return price;
+    }
+
+    // BOOKING CONFIRMATION ========================================
+    function setupBookingConfirmation() {
+        const confirmBookingBtn = document.getElementById('confirmBookingBtn');
+        const resendEmailBtn = document.getElementById('resendEmailBtn');
+
+        if (confirmBookingBtn) {
+            confirmBookingBtn.addEventListener('click', function() {
+                const cardNumber = document.getElementById('cardNumber').value;
+                const cardExpiry = document.getElementById('cardExpiry').value;
+                const cardCVC = document.getElementById('cardCVC').value;
+                const email = document.getElementById('userEmailInput').value;
+                
+                if (!cardNumber || !cardExpiry || !cardCVC) {
+                    alert('Please fill in all card details');
+                    return;
+                }
+                
+                if (!email) {
+                    alert('Please enter your email address');
+                    return;
+                }
+                
+                alert('Booking confirmed! Check your email for details.');
+            });
+        }
+
+        if (resendEmailBtn) {
+            resendEmailBtn.addEventListener('click', function() {
+                alert('Confirmation email resent!');
+            });
+        }
+    }
+
     // MAIN INITIALIZATION =========================================
     setupDatepickers();
     setupVehicleSelection();
     setupSeatSelection();
     setupCarouselNavigation();
+    setupAvailabilityCheck();
+    setupBookingConfirmation();
 });
