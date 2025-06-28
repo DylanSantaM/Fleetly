@@ -1,166 +1,150 @@
-from flask import Blueprint, render_template, request, jsonify
-from .models import db, Booking
+from flask import Blueprint, render_template, request, jsonify, current_app
 from datetime import datetime
-from werkzeug.exceptions import BadRequest
 from flask_login import login_required, current_user
-import os
-from flask import current_app
 from flask_mail import Message
+from .models import db, Booking
 
+# Create the Blueprint FIRST
 main = Blueprint('main', __name__)
 
+# Location lists
 nearbyLocations = ['Thika', 'Nakuru', 'Nyeri']
 farLocations = ['Mombasa', 'Kisumu', 'Eldoret', 'Kitale', 'Malindi', 'Kakamega']
-
-@main.route('/check-seats')
-def check_seats():
-    model = request.args.get('model')
-    date = datetime.strptime(request.args.get('date'), '%Y-%m-%d')
-    vehicle_type = request.args.get('vehicleType')
-
-    # Filter bookings by model, vehicle_type, and start_date only
-    bookings = Booking.query.filter_by(
-        model=model,
-        vehicle_type=vehicle_type,
-        start_date=date
-    ).all()
-
-    booked_seats = [booking.seat_number for booking in bookings]
-    return jsonify(booked_seats)
 
 @main.route('/')
 @main.route('/index')
 def index():
-    # Remove the train companies query since we don't need it
     return render_template('index.html')
 
+@main.route('/check-seats')
+def check_seats():
+    try:
+        model = request.args.get('model')
+        date_str = request.args.get('date')
+        vehicle_type = request.args.get('vehicleType')
+        
+        if not all([model, date_str, vehicle_type]):
+            return jsonify({'error': 'Missing required parameters'}), 400
+
+        try:
+            date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+
+        bookings = Booking.query.filter(
+            Booking.model == model,
+            Booking.vehicle_type == vehicle_type,
+            Booking.start_date == date
+        ).all()
+
+        booked_seats = [str(booking.seat_number) for booking in bookings if booking.seat_number]
+        return jsonify(booked_seats)
+
+    except Exception as e:
+        current_app.logger.error(f"Error checking seats: {str(e)}")
+        return jsonify({'error': 'Server error'}), 500
+
 @main.route('/book', methods=['POST'])
+@login_required
 def book():
-    print("Database path:", current_app.config['SQLALCHEMY_DATABASE_URI'])
-    print("Received booking request")
     try:
         if not request.is_json:
-            print("Not JSON request")
             return jsonify({'success': False, 'message': 'Invalid content type'}), 400
             
         data = request.get_json()
-        print("Received data:", data)
-        
+        current_app.logger.info(f"Booking data received: {data}")
+
+        # Validate required fields
+        required_fields = ['vehicleType', 'startDate', 'endDate', 'location', 'destination']
+        missing = [field for field in required_fields if field not in data]
+        if missing:
+            return jsonify({'success': False, 'message': f'Missing fields: {", ".join(missing)}'}), 400
+
         try:
-            # Convert dates
-            start_date = datetime.strptime(data['startDate'], '%Y-%m-%d')
-            end_date = datetime.strptime(data['endDate'], '%Y-%m-%d')
+            # Convert and validate dates
+            start_date = datetime.strptime(data['startDate'], '%Y-%m-%d').date()
+            end_date = datetime.strptime(data['endDate'], '%Y-%m-%d').date()
             
-            # Ensure totalPrice is a valid number
-            total_price = float(data['totalPrice']) if data['totalPrice'] is not None else 0.0
-            
-            # Create booking with explicit type conversion
+            if end_date < start_date:
+                return jsonify({'success': False, 'message': 'End date cannot be before start date'}), 400
+
+            # Create booking
             booking = Booking(
-                vehicle_type=str(data['vehicleType']),
-                passengers=int(data['passengers']) if data.get('passengers') else None,
-                seat_number=str(data['seatNumber']) if data.get('seatNumber') else None,
-                location=str(data['location']),
-                destination=str(data['destination']),
+                user_id=current_user.id if current_user.is_authenticated else None,
+                vehicle_type=data['vehicleType'],
+                passengers=int(data.get('passengers', 1)),
+                seat_number=data.get('seatNumber'),
+                location=data['location'],
+                destination=data['destination'],
                 start_date=start_date,
                 end_date=end_date,
-                total_price=total_price,
+                total_price=float(data.get('totalPrice', 0)),
                 model=data.get('model'),
-                email=data.get('email')
+                email=data.get('email', current_user.email if current_user.is_authenticated else None)
             )
-            
-            print("Created booking object:", vars(booking))
-            
+
             db.session.add(booking)
             db.session.commit()
-            print("Booking saved successfully")
 
-            # --- Send confirmation email ---
-            from flask_mail import Mail
-            mail = Mail(current_app)
-            recipient_email = booking.email
-            admin_emails = []
-            admins_config = current_app.config.get('ADMINS')
-            if admins_config:
-                # Support both comma-separated string and list
-                if isinstance(admins_config, str):
-                    admin_emails = [email.strip() for email in admins_config.split(',') if email.strip()]
-                elif isinstance(admins_config, list):
-                    admin_emails = admins_config
+            # Send confirmation email
+            try:
+                mail = Mail(current_app)
+                recipients = [booking.email]
+                
+                # Add admin emails if configured
+                admins = current_app.config.get('ADMINS', [])
+                if isinstance(admins, str):
+                    admins = [email.strip() for email in admins.split(',') if email.strip()]
+                recipients.extend(admins)
+                
+                msg = Message(
+                    subject="Your Booking Confirmation - Fleetly",
+                    sender=current_app.config['MAIL_USERNAME'],
+                    recipients=recipients,
+                    body=f"""Dear {booking.email},
 
-            recipients = []
-            if recipient_email:
-                recipients.append(recipient_email)
-            recipients.extend(admin_emails)
-
-            if recipients:
-                try:
-                    msg = Message(
-                        subject="Your Booking Confirmation - Fleetly",
-                        sender=current_app.config['MAIL_USERNAME'],
-                        recipients=recipients,
-                        body=f"""Dear {booking.email},
-
-Thank you for booking your trip with Fleetly! We are pleased to confirm your reservation and acknowledge that your payment has been received.
-
-Here are your booking details:
+Thank you for booking with Fleetly! Here are your details:
 --------------------------------------------------
 Vehicle Type: {booking.vehicle_type.title()}
 Model: {booking.model if booking.model else 'N/A'}
-Location (Departure): {booking.location}
-Destination: {booking.destination}
-Start Date: {booking.start_date.strftime('%Y-%m-%d')}
-End Date: {booking.end_date.strftime('%Y-%m-%d')}
-Seat Number: {booking.seat_number if booking.seat_number else 'N/A'}
-Number of Passengers: {booking.passengers if booking.passengers else 'N/A'}
-Total Price Paid: ${booking.total_price:.2f}
+From: {booking.location}
+To: {booking.destination}
+Dates: {booking.start_date} to {booking.end_date}
+Seat: {booking.seat_number if booking.seat_number else 'N/A'}
+Passengers: {booking.passengers if booking.passengers else 'N/A'}
+Total: ${booking.total_price:.2f}
 --------------------------------------------------
+Contact support@fleetly.com for any questions."""
+                )
+                mail.send(msg)
+            except Exception as mail_error:
+                current_app.logger.error(f"Failed to send email: {mail_error}")
 
-If you have any questions or need to make changes to your booking, please reply to this email or contact our support team.
+            return jsonify({
+                'success': True,
+                'message': 'Booking successful!',
+                'booking_id': booking.id
+            })
 
-We wish you a pleasant journey!
-
-Best regards,
-Fleetly Team
-support@fleetly.com
-"""
-                    )
-                    with current_app.app_context():
-                        mail.send(msg)
-                    print(f"Confirmation email sent to: {', '.join(recipients)}")
-                except Exception as mail_error:
-                    print(f"Failed to send confirmation email: {mail_error}")
-
-            return jsonify({'success': True, 'message': 'Booking saved successfully!'})
-
-        except ValueError as ve:
-            print("Value Error:", str(ve))
-            return jsonify({'success': False, 'message': f'Invalid data format: {str(ve)}'}), 400
-            
-        except Exception as db_error:
+        except ValueError as e:
             db.session.rollback()
-            print("Database error:", str(db_error))
-            return jsonify({'success': False, 'message': f'Database error: {str(db_error)}'}), 500
+            return jsonify({'success': False, 'message': f'Invalid data: {str(e)}'}), 400
             
     except Exception as e:
-        print("Error processing booking:", str(e))
-        return jsonify({'success': False, 'message': str(e)}), 500
+        db.session.rollback()
+        current_app.logger.error(f"Booking error: {str(e)}")
+        return jsonify({'success': False, 'message': 'Server error'}), 500
 
 @main.route('/about')
 def about():
     return render_template('about.html')
-
-
-# REMOVE these lines from the global/module scope!
-# db.session.commit()
-# saved = Booking.query.order_by(Booking.id.desc()).first()
-# print("Most recent booking:", vars(saved) if saved else "None")
-
 
 @main.route('/resend-confirmation', methods=['POST'])
 def resend_confirmation():
     data = request.get_json()
     booking_id = data.get('booking_id')
     email = data.get('email')
+    
     if not booking_id or not email:
         return jsonify({'success': False, 'message': 'Missing booking ID or email'}), 400
 
@@ -169,7 +153,6 @@ def resend_confirmation():
         return jsonify({'success': False, 'message': 'Booking not found'}), 404
 
     try:
-        from flask_mail import Mail
         mail = Mail(current_app)
         msg = Message(
             subject="Your Booking Confirmation - Fleetly",
@@ -177,32 +160,16 @@ def resend_confirmation():
             recipients=[email],
             body=f"""Dear {booking.email},
 
-Thank you for booking your trip with Fleetly! We are pleased to confirm your reservation and acknowledge that your payment has been received.
-
-Here are your booking details:
+Your booking details:
 --------------------------------------------------
-Vehicle Type: {booking.vehicle_type.title()}
-Model: {booking.model if booking.model else 'N/A'}
-Location (Departure): {booking.location}
-Destination: {booking.destination}
-Start Date: {booking.start_date.strftime('%Y-%m-%d')}
-End Date: {booking.end_date.strftime('%Y-%m-%d')}
-Seat Number: {booking.seat_number if booking.seat_number else 'N/A'}
-Number of Passengers: {booking.passengers if booking.passengers else 'N/A'}
-Total Price Paid: ${booking.total_price:.2f}
+Vehicle: {booking.vehicle_type}
+From: {booking.location}
+To: {booking.destination}
+Dates: {booking.start_date} to {booking.end_date}
 --------------------------------------------------
-
-If you have any questions or need to make changes to your booking, please reply to this email or contact our support team.
-
-We wish you a pleasant journey!
-
-Best regards,
-Fleetly Team
-support@fleetly.com
-"""
+Contact support@fleetly.com for help."""
         )
-        with current_app.app_context():
-            mail.send(msg)
-        return jsonify({'success': True, 'message': 'Confirmation email resent!'})
+        mail.send(msg)
+        return jsonify({'success': True, 'message': 'Email resent!'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
